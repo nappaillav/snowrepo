@@ -1,0 +1,9 @@
+ogbench
+matplotlib
+moviepy
+wandb=0.16.4
+imageio==2.9.0
+moviepy==1.0.3
+imageio[ffmpeg]
+tqdm==4.66.1
+argparse
