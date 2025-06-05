@@ -179,6 +179,67 @@ class Value(nn.Module):
             zsa = torch.cat([zsa, self.goal_encoder(goal)], 1)
         return torch.cat([self.q1(zsa), self.q2(zsa)], 1)
 
+class GCPolicy(nn.Module):
+    def __init__(self, state_dim: int, action_dim: int, pixel_obs: bool, discrete: bool, gumbel_tau: float=10, zs_dim: int=512, 
+                 hdim: int=512, activ: str='relu', goal_encoder:bool=True):
+        super().__init__()
+        inp_dim = zs_dim
+        if goal_encoder:
+            inp_dim += zs_dim
+
+        self.policy = BaseMLP(inp_dim, action_dim, hdim, activ)
+        self.activ = partial(F.gumbel_softmax, tau=gumbel_tau) if discrete else torch.tanh
+        self.discrete = discrete
+
+
+    def forward(self, zs: torch.Tensor, goal:torch.Tensor=None):
+        """
+        Assumption here is the goal is also encoder
+        """
+        if goal is not None:
+            pre_activ = self.policy(torch.cat([zs, goal], 1))
+        else:
+            pre_activ = self.policy(zs)
+        action = self.activ(pre_activ)
+        return action, pre_activ
+
+    def act(self, zs: torch.Tensor, goal:torch.Tensor=None):
+        action, _ = self.forward(zs, goal)
+        return action
+
+
+class GCValue(nn.Module):
+    def __init__(self, state_dim:int, pixel_obs:bool, zsa_dim: int=512, hdim: int=512, activ: str='elu', 
+                 goal_encoder:bool=True):
+        super().__init__()
+
+        class ValueNetwork(nn.Module):
+            def __init__(self, input_dim: int, output_dim: int, hdim: int=512, activ: str='elu'):
+                super().__init__()
+                self.q1 = BaseMLP(input_dim, hdim, hdim, activ)
+                self.q2 = nn.Linear(hdim, output_dim)
+
+                self.activ = getattr(F, activ)
+                self.apply(weight_init)
+
+            def forward(self, zsa: torch.Tensor):
+                zsa = ln_activ(self.q1(zsa), self.activ)
+                return self.q2(zsa)
+        
+        inp_dim = zsa_dim    
+        if goal_encoder:
+            inp_dim += zsa_dim
+
+        self.q1 = ValueNetwork(inp_dim, 1, hdim, activ)
+
+        self.q2 = ValueNetwork(inp_dim, 1, hdim, activ)
+
+
+    def forward(self, zsa: torch.Tensor, goal:torch.Tensor=None):
+        if goal is not None:
+            zsa = torch.cat([zsa, goal], 1)
+        return torch.cat([self.q1(zsa), self.q2(zsa)], 1)
+
 # if __name__ == '__main__':
 #     # StateEncoder Test
 #     encoder = StateEncoder(state_dim=3, pixel_obs=True, zs_dim=512, hdim=512, simple=False)

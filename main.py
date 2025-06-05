@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import ogbench 
 # import env_preprocessing
-import OfflineMRQ as MRQ
+import OfflineMRQ_v3 as MRQ
 import common.utils as utils
 import common.evalutils as evalutils
 from tqdm import tqdm 

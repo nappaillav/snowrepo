@@ -1,10 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-
 import copy
 import dataclasses
 from typing import Dict, Optional
@@ -48,10 +41,10 @@ class Hyperparameters:
     alpha: float = 0.4
     min_priority: float = 1
     enc_horizon: int = 5
-    Q_horizon: int = 1
+    Q_horizon: int = 3
 
     # Encoder Model
-    use_tdmpc:bool = True
+    use_tdmpc:bool = False
     zs_dim: int = 512
     zsa_dim: int = 512
     za_dim: int = 256
@@ -82,6 +75,7 @@ class Hyperparameters:
     upper: float = 10
 
     def __post_init__(self): utils.enforce_dataclass_type(self)
+
 
 
 class Agent:
@@ -120,19 +114,19 @@ class Agent:
 
         # 
         if self.use_tdmpc:
-            self.policy = worldmodel.Policy(obs_shape[0] * history, action_dim, pixel_obs, discrete, self.gumbel_tau, self.zs_dim,
+            self.policy = worldmodel.GCPolicy(obs_shape[0] * history, action_dim, pixel_obs, discrete, self.gumbel_tau, self.zs_dim,
                 self.policy_hdim, self.policy_activ, goal_encoder=True).to(self.device)
         else:
-            self.policy = models.Policy(obs_shape[0] * history, action_dim, pixel_obs, discrete, self.gumbel_tau, self.zs_dim,
+            self.policy = models.GCPolicy(obs_shape[0] * history, action_dim, pixel_obs, discrete, self.gumbel_tau, self.zs_dim,
                 self.policy_hdim, self.policy_activ, goal_encoder=True).to(self.device)
         self.policy_optimizer = torch.optim.AdamW(self.policy.parameters(), lr=self.policy_lr, weight_decay=self.policy_wd)
         self.policy_target = copy.deepcopy(self.policy)
 
         if self.use_tdmpc:
-            self.value = worldmodel.Value(obs_shape[0] * history, pixel_obs, self.zsa_dim, self.value_hdim, self.value_activ,
+            self.value = worldmodel.GCValue(obs_shape[0] * history, pixel_obs, self.zsa_dim, self.value_hdim, self.value_activ,
                                   goal_encoder=True).to(self.device)
         else:
-            self.value = models.Value(obs_shape[0] * history, pixel_obs, self.zsa_dim, self.value_hdim, self.value_activ,
+            self.value = models.GCValue(obs_shape[0] * history, pixel_obs, self.zsa_dim, self.value_hdim, self.value_activ,
                                   goal_encoder=True).to(self.device)
         self.value_optimizer = torch.optim.AdamW(self.value.parameters(), lr=self.value_lr, weight_decay=self.value_wd)
         self.value_target = copy.deepcopy(self.value)
@@ -164,7 +158,9 @@ class Agent:
                 state = torch.tensor(state.reshape(1, -1), dtype=torch.float, device=self.device)
                 goal = torch.tensor(goal.reshape(1, -1), dtype=torch.float, device=self.device)
             zs = self.encoder.zs(state)
-            action = self.policy.act(zs, goal)
+            goal_zs = self.encoder.zs(goal)
+
+            action = self.policy.act(zs, goal_zs)
             # if use_exploration: action += torch.randn_like(action) * self.exploration_noise
             return int(action.argmax()) if self.discrete else action.clamp(-1,1).cpu().data.numpy().flatten() * self.max_action
 
@@ -247,21 +243,28 @@ class Agent:
         reward: torch.Tensor, term_discount: torch.Tensor, reward_scale: float, target_reward_scale: float):
         metrics = {}
         with torch.no_grad():
+            
             next_zs = self.encoder_target.zs(next_state)
+            goal_zs = self.encoder_target.zs(goal)
 
             noise = (torch.randn_like(action) * self.target_policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = realign(self.policy_target.act(next_zs, goal) + noise, self.discrete) # Clips to (-1,1) OR one_hot of argmax.
+            next_action = realign(self.policy_target.act(next_zs, goal_zs) + noise, self.discrete) # Clips to (-1,1) OR one_hot of argmax.
 
             next_zsa = self.encoder_target(next_zs, next_action)
-            Q_target = self.value_target(next_zsa, goal).min(1,keepdim=True).values
-            Q_target = (reward + term_discount * Q_target * target_reward_scale)/reward_scale
-
+            Q_target = self.value_target(next_zsa, goal_zs).min(1,keepdim=True).values
+            # Q_target = (reward + term_discount * Q_target * target_reward_scale)/reward_scale
+            Q_target = reward + term_discount * Q_target
+            
             zs = self.encoder.zs(state)
+            goal_zs = self.encoder.zs(goal)
             zsa = self.encoder(zs, action)
 
-        Q = self.value(zsa, goal)
-        value_loss = F.smooth_l1_loss(Q, Q_target.expand(-1,2)) # MSE loss or Hubert loss 
-
+        
+        Q = self.value(zsa, goal_zs)
+        # value_loss = F.smooth_l1_loss(Q, Q_target.expand(-1,2)) # MSE loss or Hubert loss 
+        # value_loss = ((Q - Q_target.expand(-1,2))**2).mean() # Simple MSE
+        x = (Q - Q_target.expand(-1,2)).abs()
+        value_loss = torch.where(x < 1.0, 0.5 * x.pow(2), 1 * x).sum(1).mean()
         self.value_optimizer.zero_grad(set_to_none=True)
         value_loss.backward()
         norm = torch.nn.utils.clip_grad_norm_(self.value.parameters(), self.value_grad_clip)
@@ -277,9 +280,9 @@ class Agent:
             'train/critic_Qnorm': norm.item(),            
         })
 
-        policy_action, pre_activ = self.policy(zs, goal)
+        policy_action, pre_activ = self.policy(zs, goal_zs)
         zsa = self.encoder(zs, policy_action)
-        Q_policy = self.value(zsa, goal)
+        Q_policy = self.value(zsa, goal_zs)
         policy_loss = -Q_policy.mean() 
         pre_loss = self.pre_activ_weight * pre_activ.pow(2).mean()
         # BC Loss
@@ -406,87 +409,6 @@ def maybe_augment_state(state: torch.Tensor, next_state: torch.Tensor, pixel_obs
             next_state = next_state.squeeze(1)
     return state, next_state
 
-# def maybe_augment_state(state: torch.Tensor, next_state: torch.Tensor, goal:torch.Tensor, pixel_obs: bool, use_augs: bool):
-#     if pixel_obs and use_augs:
-#         if len(state.shape) != 5: state = state.unsqueeze(1)
-#         batch_size, horizon, history, height, width = state.shape
-#         chunks = 2
-#         if goal is not None:
-#             both_states = torch.concatenate([state.reshape(-1, history, height, width), 
-#                                              goal.reshape(-1, history, height, width),
-#                                              next_state.reshape(-1, history, height, width)], 0)
-#             chunks = 3
-#         # Group states before augmenting.
-#         both_state = torch.concatenate([state.reshape(-1, history, height, width), next_state.reshape(-1, history, height, width)], 0)
-#         both_state = shift_aug(both_state)
-
-#         state, next_state, goal = torch.chunk(both_state, chunks, 0)
-#         state = state.reshape(batch_size, horizon, history, height, width)
-#         next_state = next_state.reshape(batch_size, horizon, history, height, width)
-
-#         goal = goal.reshape(batch_size, horizon, history, height, width)
-#         if horizon == 1:
-#             state = state.squeeze(1)
-#             next_state = next_state.squeeze(1)
-#     return state, next_state
-
-# def maybe_augment_state(
-#     state: torch.Tensor,
-#     next_state: torch.Tensor,
-#     goal: Optional[torch.Tensor],
-#     pixel_obs: bool,
-#     use_augs: bool
-# ):
-#     if pixel_obs and use_augs:
-#         if state.ndim != 5:
-#             state = state.unsqueeze(1)
-
-#         batch_size, horizon, history, height, width = state.shape
-
-#         # Reshape for augmentation
-#         state_flat = state.reshape(-1, history, height, width)
-#         next_state_flat = next_state.reshape(-1, history, height, width)
-
-#         if goal is not None:
-#             goal_flat = goal.reshape(-1, history, height, width)
-#             combined = torch.cat([state_flat, goal_flat, next_state_flat], dim=0)
-#             chunks = 3
-#         else:
-#             combined = torch.cat([state_flat, next_state_flat], dim=0)
-#             chunks = 2
-
-#         # Apply augmentation
-#         augmented = shift_aug(combined)
-
-#         # Unpack augmented tensors
-#         if goal is not None:
-#             state_aug, goal_aug, next_state_aug = torch.chunk(augmented, chunks, dim=0)
-#         else:
-#             state_aug, next_state_aug = torch.chunk(augmented, chunks, dim=0)
-#             goal_aug = goal  # goal remains unchanged
-
-#         # Reshape back to original
-#         state = state_aug.reshape(batch_size, horizon, history, height, width)
-#         next_state = next_state_aug.reshape(batch_size, horizon, history, height, width)
-#         if goal is not None:
-#             goal = goal_aug.reshape(batch_size, horizon, history, height, width)
-
-#         if horizon == 1:
-#             state = state.squeeze(1)
-#             next_state = next_state.squeeze(1)
-
-#         if goal is not None:
-#             goal = goal.squeeze(1)
-#             return state, next_state, goal
-#         return state, next_state
-        
-#     else:
-#         if goal is None:
-#             return state, next_state
-#         else:
-#             return state, next_state, goal
-
-# Random shift.
 def shift_aug(image: torch.Tensor, pad: int=4):
     batch_size, _, height, width = image.size()
     image = F.pad(image, (pad, pad, pad, pad), 'replicate')
@@ -503,5 +425,9 @@ def shift_aug(image: torch.Tensor, pad: int=4):
     return F.grid_sample(image, base_grid + shift, padding_mode='zeros', align_corners=False)
 
 
-# DYNAMIC REWARD Scaling 
-# AUGMENTATION Seems not working 
+# The Encoder should also process the goal image. 
+# ChangeList 
+#   1.train_rl 
+#   2. Model (Policy and critic)
+
+

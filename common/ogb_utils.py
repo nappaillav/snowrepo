@@ -9,6 +9,7 @@ def toTensor(array, device):
         d_type=torch.float32
 
     return torch.tensor(array, dtype=d_type, device=device)
+
 def load_dataset(dataset_path, ob_dtype=np.float32, 
                  action_dtype=np.float32, compact_dataset=False):
     """Load OGBench dataset.
@@ -57,7 +58,7 @@ def load_dataset(dataset_path, ob_dtype=np.float32,
             storage_device = torch.device('cpu')    
         print(f'Storage_device {storage_device}')
 
-        dataset= {k:toTensor(v, storage_device) for k, v in dataset.items()}
+        dataset = {k: toTensor(v, storage_device) if k not in ['valids', 'terminals'] else v.astype(int) for k, v in dataset.items()}
     else:
 
         ob_mask = (1.0 - dataset['terminals']).astype(bool)

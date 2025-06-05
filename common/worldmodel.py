@@ -4,26 +4,26 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from functools import partial
 
-# def weight_init(m):
-#     """Custom weight initialization for TD-MPC2."""
-#     if isinstance(m, nn.Linear):
-#         nn.init.trunc_normal_(m.weight, std=0.02)
-#         if m.bias is not None:
-#             nn.init.constant_(m.bias, 0)
-#     elif isinstance(m, nn.Embedding):
-#         nn.init.uniform_(m.weight, -0.02, 0.02)
-#     elif isinstance(m, nn.ParameterList):
-#         for i,p in enumerate(m):
-#             if p.dim() == 3: # Linear
-#                 nn.init.trunc_normal_(p, std=0.02) # Weight
-#                 nn.init.constant_(m[i+1], 0)
+def weight_init(m):
+    """Custom weight initialization for TD-MPC2."""
+    if isinstance(m, nn.Linear):
+        nn.init.trunc_normal_(m.weight, std=0.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.Embedding):
+        nn.init.uniform_(m.weight, -0.02, 0.02)
+    elif isinstance(m, nn.ParameterList):
+        for i,p in enumerate(m):
+            if p.dim() == 3: # Linear
+                nn.init.trunc_normal_(p, std=0.02) # Weight
+                nn.init.constant_(m[i+1], 0)
     # CNN weight initialization
-    
-def weight_init(layer: torch.nn.modules):
-    if isinstance(layer, (nn.Linear, nn.Conv2d)):
-        # gain = nn.init.calculate_gain('silu')
-        nn.init.xavier_uniform_(layer.weight.data, gain=1.0) 
-        if hasattr(layer.bias, 'data'): layer.bias.data.fill_(0.0)
+
+# def weight_init(layer: torch.nn.modules):
+#     if isinstance(layer, (nn.Linear, nn.Conv2d)):
+#         # gain = nn.init.calculate_gain('silu')
+#         nn.init.xavier_uniform_(layer.weight.data, gain=1.0) 
+#         if hasattr(layer.bias, 'data'): layer.bias.data.fill_(0.0)
                 
 class ShiftAug(nn.Module):
     """
@@ -263,4 +263,61 @@ class Value(nn.Module):
     def forward(self, zsa: torch.Tensor, goal:torch.Tensor=None):
         if goal is not None:
             zsa = torch.cat([zsa, self.goal_encoder(goal)], 1)
+        return torch.cat([self.q1(zsa), self.q2(zsa)], 1)
+    
+
+class GCPolicy(nn.Module):
+    def __init__(self, state_dim: int, action_dim: int, pixel_obs: bool, discrete: bool, gumbel_tau: float=10, zs_dim: int=512, 
+                 hdim: int=512, activ: str='relu', goal_encoder:bool=True):
+        super().__init__()
+        inp_dim = zs_dim
+        if goal_encoder:
+            inp_dim += zs_dim
+
+        self.policy = MLP(inp_dim, [hdim], action_dim)
+        self.activ = partial(F.gumbel_softmax, tau=gumbel_tau) if discrete else torch.tanh
+        self.discrete = discrete
+
+
+    def forward(self, zs: torch.Tensor, goal:torch.Tensor=None):
+        if goal is not None:
+            pre_activ = self.policy(torch.cat([zs, goal], 1))
+        else:
+            pre_activ = self.policy(zs)
+        action = self.activ(pre_activ)
+        return action, pre_activ
+
+    def act(self, zs: torch.Tensor, goal:torch.Tensor=None):
+        action, _ = self.forward(zs, goal)
+        return action
+
+
+class GCValue(nn.Module):
+    def __init__(self, state_dim:int, pixel_obs:bool, zsa_dim: int=512, hdim: int=512, activ: str='elu', 
+                 goal_encoder:bool=True):
+        super().__init__()
+
+        class ValueNetwork(nn.Module):
+            def __init__(self, input_dim: int, output_dim: int, hdim: int=512, activ: str='elu'):
+                super().__init__()
+                self.q = MLP(input_dim, 2*[hdim], output_dim, dropout=0.01)
+
+                self.apply(weight_init)
+
+            def forward(self, zsa: torch.Tensor):
+                return self.q(zsa)
+        
+        inp_dim = zsa_dim    
+        if goal_encoder:
+            # Goal encoder is shared 
+            inp_dim += zsa_dim
+
+        self.q1 = ValueNetwork(inp_dim, 1, hdim, activ)
+
+        self.q2 = ValueNetwork(inp_dim, 1, hdim, activ)
+
+
+    def forward(self, zsa: torch.Tensor, goal:torch.Tensor=None):
+        if goal is not None:
+            zsa = torch.cat([zsa, goal], 1)
         return torch.cat([self.q1(zsa), self.q2(zsa)], 1)
