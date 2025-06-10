@@ -55,8 +55,8 @@ def main():
     parser.add_argument('--data_folder', default='F:/workspace/sai/data/', type=str)
     # Evaluation
     parser.add_argument('--eval_freq', default=25000, type=int) # Uses default, input to override.
-    parser.add_argument('--log_freq', default=1000, type=int) # Uses default, input to override.
-    parser.add_argument('--eval_eps', default=10, type=int)
+    parser.add_argument('--log_freq', default=2000, type=int) # Uses default, input to override.
+    parser.add_argument('--eval_eps', default=4, type=int)
     # File name and locations
     parser.add_argument('--project_name', default='', type=str) # Uses default, input to override.
     parser.add_argument('--wandb_project', default='OGWorld', type=str) # Uses default, input to override.

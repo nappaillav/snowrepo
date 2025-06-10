@@ -51,7 +51,7 @@ class Hyperparameters:
     Q_horizon: int = 3
 
     # Encoder Model
-    use_tdmpc:bool = True
+    use_tdmpc:bool = False
     zs_dim: int = 512
     zsa_dim: int = 512
     za_dim: int = 256

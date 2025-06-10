@@ -77,7 +77,7 @@ def get_wandb_video(renders=None, n_cols=None, fps=15):
 
 
 def evaluate_ogbench(agent, env, evals, eval_tasks, t, 
-                     eval_freq=50000, eval_eps=20,video_eps=0):
+                     eval_freq=50000, eval_eps=20,video_eps=2):
     if t == 0 or t % eval_freq != 0:
         return 
     renders = []
@@ -92,7 +92,7 @@ def evaluate_ogbench(agent, env, evals, eval_tasks, t,
             env=env,
             task_id=task_id,
             args=None,
-            num_eval_episodes=20,
+            num_eval_episodes=eval_eps,
             num_video_episodes=video_eps,
             video_frame_skip=3,
             eval_gaussian=None,
