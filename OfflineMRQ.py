@@ -260,8 +260,8 @@ class Agent:
             zsa = self.encoder(zs, action)
 
         Q = self.value(zsa, goal)
-        value_loss = F.smooth_l1_loss(Q, Q_target.expand(-1,2)) # MSE loss or Hubert loss 
-
+        # value_loss = F.smooth_l1_loss(Q, Q_target.expand(-1,2)) # MSE loss or Hubert loss 
+        value_loss = ((Q - Q_target)**2).mean()
         self.value_optimizer.zero_grad(set_to_none=True)
         value_loss.backward()
         norm = torch.nn.utils.clip_grad_norm_(self.value.parameters(), self.value_grad_clip)
