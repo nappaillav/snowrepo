@@ -1,4 +1,5 @@
 from common.ogb_utils import load_dataset
+# from ogb_utils import load_dataset
 import numpy as np
 import torch
 
@@ -57,7 +58,7 @@ class OGBuffer():
         # sample index
         tid = np.random.randint(0, self.num_traj, batch_size).reshape(-1, 1)
         max_start = self.traj_length - horizon - 1 
-        tpos = np.random.randint(1, max_start + 1, batch_size)
+        tpos = np.random.randint(1, max_start, batch_size)
         
         # Generate horizon indices
         local_ind = tpos[:, None] + np.arange(horizon + 1)  # to handle the next state-> 
@@ -80,7 +81,7 @@ class OGBuffer():
 
         else:
             # Sample offset position with 20 as goal
-            offset = np.random.geometric(p=1 - geom_p, size=batch_size) * np.where(np.random.rand(batch_size)<0.2, 0, 1)
+            offset = np.random.geometric(p=1 - geom_p, size=batch_size) * np.where(np.random.rand(batch_size)<goal_p, 0, 1)
             goal_pos = self.traj_length * tid.reshape(-1) + np.minimum(local_ind[:, 0] + offset, self.traj_length - 1) # goal from 
 
             # Weight calculation
@@ -92,7 +93,7 @@ class OGBuffer():
                 weight = np.ones_like(goal_pos, dtype=np.float32)
             assert np.all(weight >= 0), "Negative weights detected!"
             
-            not_done = toTensor(np.where(ind > goal_pos[:, None], 0, 1)[:, :horizon]) # not done
+            not_done = toTensor(np.where(ind == goal_pos[:, None], 0, 1)[:, :horizon]) # not done
             reward = toTensor(np.where(ind[:, :-1] == goal_pos[:, None], 0, -1)[:, :horizon])
             
             stacked_ind = np.stack((ind[:, 0], ind[:, -1], goal_pos), 1)
@@ -109,11 +110,11 @@ class OGBuffer():
 
 
 # if __name__ == "__main__":
-#     dataset_path = 'F:/workspace/sai/data/visual-humanoidmaze-medium-navigate-v0-val.npz'
-#     # dataset_path='F:/workspace/sai/data/antmaze-medium-stitch-v0.npz'
+#     # dataset_path = 'F:/workspace/sai/data/visual-humanoidmaze-medium-navigate-v0-val.npz'
+#     dataset_path='F:/workspace/sai/data/antmaze-medium-stitch-v0.npz'
 #     buffer = OGBuffer(256, None)
 #     buffer.load_ogbench(dataset_path=dataset_path)
-#     out = buffer.sample(horizon=5, include_intermediate=True)
+#     # out = buffer.sample(horizon=5, include_intermediate=True)
 #     out = buffer.sample(horizon=3, include_intermediate=False)
 
 

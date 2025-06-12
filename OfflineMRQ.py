@@ -181,8 +181,8 @@ class Agent:
             self.encoder_target.load_state_dict(self.encoder.state_dict())
             self.target_reward_scale = self.reward_scale
             # self.reward_scale = self.reward_scale # self.replay_buffer.reward_scale()
-            # state, action, next_state, goal, not_done, reward = self.replay_buffer.sample(horizon=self.Q_horizon, include_intermediate=False)
-            # self.reward_scale = reward.abs().mean().item()
+            state, action, next_state, goal, not_done, reward = self.replay_buffer.sample(horizon=self.Q_horizon, include_intermediate=False)
+            self.reward_scale = reward.abs().mean().item()
             enc_loss = 0
             for _ in range(self.target_update_freq):
                 # state, action, next_state, reward, not_done = self.replay_buffer.sample(self.enc_horizon, include_intermediate=True)
@@ -194,7 +194,7 @@ class Agent:
                 
 
         state, action, next_state, goal, not_done, reward = self.replay_buffer.sample(horizon=self.Q_horizon, include_intermediate=False)
-        self.reward_scale = reward.abs().mean().item()
+        # self.reward_scale = reward.abs().mean().item()
         state, next_state = maybe_augment_state(state, next_state, self.pixel_obs, self.pixel_augs)
         reward, term_discount = multi_step_reward(reward, not_done, self.discount)
 
@@ -255,6 +255,7 @@ class Agent:
             next_zsa = self.encoder_target(next_zs, next_action)
             Q_target = self.value_target(next_zsa, goal).min(1,keepdim=True).values
             Q_target = (reward + term_discount * Q_target * target_reward_scale)/reward_scale
+            # Q_target = reward + term_discount * Q_target 
 
             zs = self.encoder.zs(state)
             zsa = self.encoder(zs, action)

@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--log_freq', default=2000, type=int) # Uses default, input to override.
     parser.add_argument('--eval_eps', default=4, type=int)
     # File name and locations
-    parser.add_argument('--project_name', default='', type=str) # Uses default, input to override.
+    parser.add_argument('--project_name', default='buffer_not_done', type=str) # Uses default, input to override.
     parser.add_argument('--wandb_project', default='OGWorld', type=str) # Uses default, input to override.
     parser.add_argument('--eval_folder', default='./evals', type=str)
     parser.add_argument('--log_folder', default='./logs', type=str)

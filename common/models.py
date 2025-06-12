@@ -37,6 +37,18 @@ class BaseMLP(nn.Module):
 class SimpleCNN(nn.Module):
     def __init__(self, state_dim, zs_dim, activ='elu'):
         super().__init__()
+        # moving_but_not convering fast 
+        # self.zs_cnn = nn.Sequential(
+        #             nn.Conv2d(state_dim, 32, 3, stride=2),
+        #             nn.GELU(),
+        #             nn.Conv2d(32, 32, 3, stride=2),
+        #             nn.GELU(),
+        #             nn.Conv2d(32, 32, 3, stride=2),
+        #             nn.GELU(),
+        #             nn.Conv2d(32, 32, 3, stride=1),
+        #             nn.GELU(),
+        #         )
+        # ELU + MSE : 25%
         self.zs_cnn = nn.Sequential(
                     nn.Conv2d(state_dim, 32, 3, stride=2),
                     nn.ELU(),
