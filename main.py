@@ -67,7 +67,7 @@ def main():
     parser.add_argument('--save_experiment', default=False, action=argparse.BooleanOptionalAction, type=bool)
     parser.add_argument('--save_freq', default=1e5, type=int)
     parser.add_argument('--load_experiment', default=False, action=argparse.BooleanOptionalAction, type=bool)
-    parser.add_argument('--debug', default=False, action=argparse.BooleanOptionalAction, type=bool)
+    parser.add_argument('--debug', default=True, action=argparse.BooleanOptionalAction, type=bool)
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() and args.device=='cuda' else 'cpu')

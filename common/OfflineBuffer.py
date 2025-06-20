@@ -1,6 +1,11 @@
-from common.ogb_utils import load_dataset
+try:
+    from common.ogb_utils import load_dataset
+except:
+    from ogb_utils import load_dataset
+
 import numpy as np
 import torch
+import random 
 
 def toTensor(array, d_type=torch.float, device=torch.device('cuda')):
     return torch.tensor(array, dtype=d_type, device=device)
@@ -65,18 +70,44 @@ class OGBuffer():
         ind = self.traj_length * tid + local_ind
         action = self.action[ind]
         
-        
+        # # before adding goal
+        # if include_intermediate:
+        #     # THIS is for Learning an encoder (dynamics model)
+        #     both_state = self.state[ind].reshape(self.batch_size,-1,*self.state_shape).type(torch.float)
+        #     state = both_state[:,:-1]       # State: (batch_size, horizon, *state_dim)
+        #     next_state = both_state[:,1:]   # Next state: (batch_size, horizon, *state_dim)
+        #     action = action[:,:-1, :]         # Action: (batch_size, horizon, action_dim)
+        #     if self.storage_device:
+        #         return state, action, next_state, None, None
+        #     else:
+        #         return toDevice(state), toDevice(action), toDevice(next_state), None, None
 
         if include_intermediate:
+            reference_pos = random.randint(0, horizon-1)
+            # offset = np.random.geometric(p=1 - geom_p, size=batch_size) * np.where(np.random.rand(batch_size)<0.1, 0, 1)
+            # goal_pos = self.traj_length * tid.reshape(-1) + np.minimum(local_ind[:, reference_pos] + offset, self.traj_length - 1)
+            distances = np.random.rand(self.batch_size) * np.where(np.random.rand(batch_size)<0.2, 0, 1) 
+            pos = np.round((local_ind[:, 0] * (1-distances) + (self.traj_length - 1) * (distances))).astype(int)
+            # pos = pos * np.where(np.random.rand(batch_size)<0.2, 1, 0)
+            goal_pos = self.traj_length * tid.reshape(-1) + np.minimum(pos, self.traj_length - 1)
+            
+            # not_done
+            not_done = toTensor(np.where(ind >= goal_pos[:, None], 0, 1)[:, :horizon]) # not done
+            # reward 
+            # reward = toTensor(np.where(ind[:, :-1] == goal_pos[:, None], 0, -1)[:, :horizon])
+            val = 0.95**(goal_pos[:, None] - ind[:, :-1])[:, :horizon]
+            reward = toTensor(np.where(val< 0.01, 0, val))
             # THIS is for Learning an encoder (dynamics model)
-            both_state = self.state[ind].reshape(self.batch_size,-1,*self.state_shape).type(torch.float)
-            state = both_state[:,:-1]       # State: (batch_size, horizon, *state_dim)
-            next_state = both_state[:,1:]   # Next state: (batch_size, horizon, *state_dim)
+            stacked_ind = np.concatenate((ind, goal_pos[:, None]), 1)
+            both_state = self.state[stacked_ind].reshape(self.batch_size,-1,*self.state_shape).type(torch.float)
+            state = both_state[:,:-2]       # State: (batch_size, horizon, *state_dim)
+            next_state = both_state[:,1:-1]   # Next state: (batch_size, horizon, *state_dim)
             action = action[:,:-1, :]         # Action: (batch_size, horizon, action_dim)
+            goal = both_state[:, -1]
             if self.storage_device:
-                return state, action, next_state, None, None
+                return state, action, next_state, goal, reward.unsqueeze(-1), not_done.unsqueeze(-1)
             else:
-                return toDevice(state), toDevice(action), toDevice(next_state), None, None
+                return toDevice(state), toDevice(action), toDevice(next_state), toDevice(goal), reward.unsqueeze(-1), not_done.unsqueeze(-1)
 
         else:
             # Sample offset position with 20 as goal
@@ -92,10 +123,17 @@ class OGBuffer():
                 weight = np.ones_like(goal_pos, dtype=np.float32)
             assert np.all(weight >= 0), "Negative weights detected!"
             
-            not_done = toTensor(np.where(ind > goal_pos[:, None], 0, 1)[:, :horizon]) # not done
-            reward = toTensor(np.where(ind[:, :-1] == goal_pos[:, None], 0, -1)[:, :horizon])
+            not_done = toTensor(np.where(ind >= goal_pos[:, None], 0, 1)[:, :horizon]) # not done
+            # reward = toTensor(np.where(ind[:, :-1] == goal_pos[:, None], 0, -1)[:, :horizon])
+
+            # not_done
+            # not_done = toTensor(np.where(ind >= goal_pos[:, None], 0, 1)[:, :horizon]) # not done
+            # # reward 
+            # reward = toTensor(np.where(ind[:, :-1] >= goal_pos[:, None], 0, -1)[:, :horizon])
+            val = 0.95**(goal_pos[:, None] - ind[:, :-1])[:, :horizon]
+            reward = toTensor(np.where(val< 0.01, 0, val))
             
-            stacked_ind = np.stack((ind[:, 0], ind[:, -1], goal_pos), 1)
+            stacked_ind = np.concatenate((ind, goal_pos[:, None]), 1)
             all_state = self.state[stacked_ind].reshape(self.batch_size,-1,*self.state_shape).type(torch.float)
             state = all_state[:,0]       # State: (batch_size, *state_dim)
             next_state = all_state[:,1]   # Next state: (batch_size, *state_dim)
@@ -111,10 +149,10 @@ class OGBuffer():
 # if __name__ == "__main__":
 #     dataset_path = 'F:/workspace/sai/data/visual-humanoidmaze-medium-navigate-v0-val.npz'
 #     # dataset_path='F:/workspace/sai/data/antmaze-medium-stitch-v0.npz'
-#     buffer = OGBuffer(256, None)
+#     buffer = OGBuffer(8, None)
 #     buffer.load_ogbench(dataset_path=dataset_path)
 #     out = buffer.sample(horizon=5, include_intermediate=True)
-#     out = buffer.sample(horizon=3, include_intermediate=False)
+    # out = buffer.sample(horizon=3, include_intermediate=False)
 
 
 ######## TODO ########
