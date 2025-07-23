@@ -18,7 +18,7 @@ import random
 import numpy as np
 import torch
 import ogbench 
-import OfflineMRQ as MRQ
+from drqv2 import DrQV2Agent
 import common.utils as utils
 import common.evalutils as evalutils
 from tqdm import tqdm 
@@ -61,7 +61,7 @@ def main(args: DictConfig):
     # if args.eval_freq == -1: args.eval_freq = default_arguments.__dict__[f'{env_type}_eval_freq']
 
     # File name and make folders
-    if args.project_name == '': args.project_name = f'MRQ+{args.env}+{args.seed}'
+    if args.project_name == '': args.project_name = f'DRQ-v2+{args.env}+{args.seed}'
     if not os.path.exists(args.eval_folder): os.makedirs(args.eval_folder)
     if not os.path.exists(args.log_folder): os.makedirs(args.log_folder)
     if args.save_experiment and not os.path.exists(f'{args.save_folder}/{args.project_name}'):
@@ -91,8 +91,9 @@ def main(args: DictConfig):
     max_action = float(env.action_space.high[0])
 
     
-    agent = MRQ.Agent(obs_shape=obs_shape, action_dim=action_dim, max_action=max_action,
-    pixel_obs=pixel_obs, discrete=False, device=device, history=1, hp=dict(args.hp))
+    agent = DrQV2Agent(obs_shape, action_dim, device, 3e-4, 512,
+                        512, 0.01, 2000,
+                        2, 0.3, 0.3, True)
 
     agent.replay_buffer.load_ogbench(dataset_path=datapath)
     print(f"Size of Dataset : {agent.replay_buffer.state.shape} | Length of Dataset : {agent.replay_buffer.num_traj}")
@@ -113,19 +114,12 @@ def main(args: DictConfig):
                                    eval_freq=args.eval_freq, eval_eps=args.eval_eps)
         
         # log_status, metrics = agent.train()
-        train_metrics = agent.train()
+        train_metrics = agent.update()
         if t%args.log_freq == 0: 
             if not args.debug:
                 wandb.log(train_metrics, step=t)
-            logger_text = utils.log_util(train_metrics, t)
-            logger.log_print(logger_text)
-        # if log_status:
-        #     wandb.log(metrics, step=t)
-        # if t > 0 and t%30000==0:
-        #     tqdm.write(f'{t} Checkpoint Saved')
-        #     agent.save(self.workdir)
-
-    # HERE WORK on the LOGGER TODO
+            # logger_text = utils.log_util(train_metrics, t)
+            logger.log_print(str(train_metrics))
 
 if __name__ == "__main__":
     main()

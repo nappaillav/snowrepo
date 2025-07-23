@@ -1,8 +1,30 @@
 import dataclasses
 import pprint
+import random
 
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import distributions as pyd
+from torch.distributions.utils import _standard_normal
 
+def flatten_dict(d, parent_key='', sep='.'):
+    """Flattens a nested dictionary with dot notation (e.g., 'policy.lr')."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 def enforce_dataclass_type(dataclass: dataclasses.dataclass):
     for field in dataclasses.fields(dataclass):
@@ -82,133 +104,72 @@ def results_to_numpy(file: str='../results/gym_results.txt'):
     return results
 
 
-gym = [
-    'Gym-HalfCheetah-v4',
-    'Gym-Hopper-v4',
-    'Gym-Walker2d-v4',
-    'Gym-Ant-v4',
-    'Gym-Humanoid-v4',
-]
+
+class eval_mode:
+    def __init__(self, *models):
+        self.models = models
+
+    def __enter__(self):
+        self.prev_states = []
+        for model in self.models:
+            self.prev_states.append(model.training)
+            model.train(False)
+
+    def __exit__(self, *args):
+        for model, state in zip(self.models, self.prev_states):
+            model.train(state)
+        return False
 
 
-dmc = [
-    'Dmc-acrobot-swingup',
-    'Dmc-ball_in_cup-catch',
-    'Dmc-cartpole-balance',
-    'Dmc-cartpole-balance_sparse',
-    'Dmc-cartpole-swingup',
-    'Dmc-cartpole-swingup_sparse',
-    'Dmc-cheetah-run',
-    'Dmc-dog-stand',
-    'Dmc-dog-walk',
-    'Dmc-dog-trot',
-    'Dmc-dog-run',
-    'Dmc-finger-spin',
-    'Dmc-finger-turn_easy',
-    'Dmc-finger-turn_hard',
-    'Dmc-fish-swim',
-    'Dmc-hopper-stand',
-    'Dmc-hopper-hop',
-    'Dmc-humanoid-stand',
-    'Dmc-humanoid-walk',
-    'Dmc-humanoid-run',
-    'Dmc-pendulum-swingup',
-    'Dmc-quadruped-walk',
-    'Dmc-quadruped-run',
-    'Dmc-reacher-easy',
-    'Dmc-reacher-hard',
-    'Dmc-walker-stand',
-    'Dmc-walker-walk',
-    'Dmc-walker-run'
-]
+def set_seed_everywhere(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
-dmc_visual = [
-    'Dmc-visual-acrobot-swingup',
-    'Dmc-visual-ball_in_cup-catch',
-    'Dmc-visual-cartpole-balance',
-    'Dmc-visual-cartpole-balance_sparse',
-    'Dmc-visual-cartpole-swingup',
-    'Dmc-visual-cartpole-swingup_sparse',
-    'Dmc-visual-cheetah-run',
-    'Dmc-visual-dog-stand',
-    'Dmc-visual-dog-walk',
-    'Dmc-visual-dog-trot',
-    'Dmc-visual-dog-run',
-    'Dmc-visual-finger-spin',
-    'Dmc-visual-finger-turn_easy',
-    'Dmc-visual-finger-turn_hard',
-    'Dmc-visual-fish-swim',
-    'Dmc-visual-hopper-stand',
-    'Dmc-visual-hopper-hop',
-    'Dmc-visual-humanoid-stand',
-    'Dmc-visual-humanoid-walk',
-    'Dmc-visual-humanoid-run',
-    'Dmc-visual-pendulum-swingup',
-    'Dmc-visual-quadruped-walk',
-    'Dmc-visual-quadruped-run',
-    'Dmc-visual-reacher-easy',
-    'Dmc-visual-reacher-hard',
-    'Dmc-visual-walker-stand',
-    'Dmc-visual-walker-walk',
-    'Dmc-visual-walker-run'
-]
+def soft_update_params(net, target_net, tau):
+    for param, target_param in zip(net.parameters(), target_net.parameters()):
+        target_param.data.copy_(tau * param.data +
+                                (1 - tau) * target_param.data)
 
 
-atari = [
-    'Atari-Alien-v5',
-    'Atari-Amidar-v5',
-    'Atari-Assault-v5',
-    'Atari-Asterix-v5',
-    'Atari-Asteroids-v5',
-    'Atari-Atlantis-v5',
-    'Atari-BankHeist-v5',
-    'Atari-BattleZone-v5',
-    'Atari-BeamRider-v5',
-    'Atari-Berzerk-v5',
-    'Atari-Bowling-v5',
-    'Atari-Boxing-v5',
-    'Atari-Breakout-v5',
-    'Atari-Centipede-v5',
-    'Atari-ChopperCommand-v5',
-    'Atari-CrazyClimber-v5',
-    'Atari-DemonAttack-v5',
-    'Atari-DoubleDunk-v5',
-    'Atari-Enduro-v5',
-    'Atari-FishingDerby-v5',
-    'Atari-Freeway-v5',
-    'Atari-Frostbite-v5',
-    'Atari-Gopher-v5',
-    'Atari-Gravitar-v5',
-    'Atari-Hero-v5',
-    'Atari-IceHockey-v5',
-    'Atari-Jamesbond-v5',
-    'Atari-Kangaroo-v5',
-    'Atari-Krull-v5',
-    'Atari-KungFuMaster-v5',
-    'Atari-MontezumaRevenge-v5',
-    'Atari-MsPacman-v5',
-    'Atari-NameThisGame-v5',
-    'Atari-Phoenix-v5',
-    'Atari-Pitfall-v5',
-    'Atari-Pong-v5',
-    'Atari-PrivateEye-v5',
-    'Atari-Qbert-v5',
-    'Atari-Riverraid-v5',
-    'Atari-RoadRunner-v5',
-    'Atari-Robotank-v5',
-    'Atari-Seaquest-v5',
-    'Atari-Skiing-v5',
-    'Atari-Solaris-v5',
-    'Atari-SpaceInvaders-v5',
-    'Atari-StarGunner-v5',
-    'Atari-Tennis-v5',
-    'Atari-TimePilot-v5',
-    'Atari-Tutankham-v5',
-    'Atari-UpNDown-v5',
-    'Atari-Venture-v5',
-    'Atari-VideoPinball-v5',
-    'Atari-WizardOfWor-v5',
-    'Atari-YarsRevenge-v5',
-    'Atari-Zaxxon-v5',
-]
+def to_torch(xs, device):
+    return tuple(torch.as_tensor(x, device=device) for x in xs)
+
+
+def weight_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.orthogonal_(m.weight.data)
+        if hasattr(m.bias, 'data'):
+            m.bias.data.fill_(0.0)
+    elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+        gain = nn.init.calculate_gain('relu')
+        nn.init.orthogonal_(m.weight.data, gain)
+        if hasattr(m.bias, 'data'):
+            m.bias.data.fill_(0.0)
+
+class TruncatedNormal(pyd.Normal):
+    def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
+        super().__init__(loc, scale, validate_args=False)
+        self.low = low
+        self.high = high
+        self.eps = eps
+
+    def _clamp(self, x):
+        clamped_x = torch.clamp(x, self.low + self.eps, self.high - self.eps)
+        x = x - x.detach() + clamped_x.detach()
+        return x
+
+    def sample(self, clip=None, sample_shape=torch.Size()):
+        shape = self._extended_shape(sample_shape)
+        eps = _standard_normal(shape,
+                               dtype=self.loc.dtype,
+                               device=self.loc.device)
+        eps *= self.scale
+        if clip is not None:
+            eps = torch.clamp(eps, -clip, clip)
+        x = self.loc + eps
+        return self._clamp(x)
+

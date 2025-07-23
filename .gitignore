@@ -197,3 +197,5 @@ outputs/*
 evals
 logs
 wandb
+key
+data

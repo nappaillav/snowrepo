@@ -48,7 +48,7 @@ class Hyperparameters:
     alpha: float = 0.4
     min_priority: float = 1
     enc_horizon: int = 5
-    Q_horizon: int = 3
+    Q_horizon: int = 1
 
     # Encoder Model
     use_tdmpc:bool = False
@@ -87,16 +87,16 @@ class Hyperparameters:
 class Agent:
     def __init__(self, obs_shape: tuple, action_dim: int, max_action: float, pixel_obs: bool, discrete: bool,
         device: torch.device, history: int=1, hp: Dict={}):
-        self.name = 'Offline_MRQ'
+        self.name = 'SPF'
 
         self.hp = Hyperparameters(**hp)
         utils.set_instance_vars(self.hp, self)
         self.device = device
 
-        if discrete: # Scale action noise since discrete actions are [0,1] and continuous actions are [-1,1].
-            self.exploration_noise *= 0.5
-            self.noise_clip *= 0.5
-            self.target_policy_noise *= 0.5
+        # if discrete: # Scale action noise since discrete actions are [0,1] and continuous actions are [-1,1].
+        #     self.exploration_noise *= 0.5
+        #     self.noise_clip *= 0.5
+        #     self.target_policy_noise *= 0.5
 
         # self.replay_buffer = buffer.ReplayBuffer(
         #     obs_shape, action_dim, max_action, pixel_obs, self.device,
